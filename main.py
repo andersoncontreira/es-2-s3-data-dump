@@ -19,7 +19,14 @@ def handler():
     logger.info("Beginning at {}".format(datetime.now(tz=pytz.timezone("America/Sao_Paulo"))))
     logger.info("---------------------------------------------------------")
 
-    service.import_data()
+    custom_filter = {
+        "bool": {
+            "filter": [
+                {"range": {"datetime": {"gte": "2021-03-15T03:58:46.560Z"}}}
+            ]
+        }
+    }
+    service.import_data(custom_filter)
     result = service.get_results()
 
     logger.info("---------------------------------------------------------")

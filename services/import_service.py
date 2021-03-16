@@ -1,7 +1,9 @@
 import json
 import os
+import sys
+import time
 from datetime import datetime
-from math import ceil
+from math import ceil, floor
 from os import path
 from queue import Queue
 
@@ -13,6 +15,7 @@ from services.thread_executor import ThreadExecutor
 class ImportService:
     def __init__(self, index=None, logger=None, es_client=None, s3_client=None):
 
+        self.block_result = []
         self.logger = logger if logger is not None else get_logger()
         self.es_client = es_client if es_client is not None else get_elasticsearch_client(with_params=True)
         self.s3_client = s3_client if s3_client is not None else get_s3_client(with_params=True)
@@ -26,11 +29,13 @@ class ImportService:
         # thread execution counter
         self.threads_item_counter = 0
         # queue size
-        self.threads_queue_size = 5
+        self.threads_queue_size = 500
         # execution key
         self.execution_key = "backup_{}".format(datetime.now().strftime('%Y%m%d%H%M%S'))
         # execution total items
         self.total_items = 0
+        # total of requests
+        self.total_request = 0
         # process queue
         self.queue = Queue()
         # final result
@@ -41,33 +46,137 @@ class ImportService:
             'total_items_per_file': self.threads_queue_size
         }
 
-    def import_data(self):
-        self.total_items = self.get_elastic_count()
+    def import_data(self, custom_filter):
+        self.total_items = self.get_elastic_count(custom_filter)
         if self.total_items == 0:
             return self._finish_callback([])
 
-        item_per_search = self.threads_queue_size
-        total_search_request = ceil(self.total_items / item_per_search)
-        # total_search_request = 5
+        # limit of the search item
+        es_max_items = 10000
 
-        for i in range(0, total_search_request):
-            search_filter = {
-                "from": i * item_per_search,
-                "size": item_per_search,
-                "query": {
-                    "match_all": {}
-                }
+        # max loop iteraction
+        max_loop_interactions = ceil(self.total_items / es_max_items)
+
+        self.total_request = max_loop_interactions * 10
+        # print(max_loop_interactions)
+
+        for b in range(0, max_loop_interactions):
+            search_after = b * es_max_items
+            for i in range(0, 10):
+                _from = i * 1000
+                search_filter = self.get_default_filter()
+                search_filter['from'] = 0
+                search_filter["size"] = self.threads_queue_size
+                search_filter["search_after"] = [search_after + _from]
+                search_filter["sort"] = [
+                    {"datetime": "asc"}
+                ]
+                if custom_filter:
+                    del search_filter['query']['match_all']
+                    search_filter['query'].update(custom_filter)
+
+                self.queue.put(search_filter)
+            thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
+            thread_executor.set_max_works(self.threads_count)
+            thread_executor.execute(future_fn=self._do_request, finish_callback=self._block_callback)
+            self.logger.info('slepping...')
+            time.sleep(5)
+
+        result = []
+        for item in self.block_result:
+            result.append(item)
+
+        self.results = {
+            'items': result,
+            'total_items': len(result),
+            'total_index_items': self.total_items,
+            'total_items_per_file': self.threads_queue_size
+        }
+
+        # print(self.total_items/max_loop_interactions)
+
+        # item_per_search = self.recalculate_item_per_search()
+        # total_search_request = ceil(self.total_items / item_per_search)
+        # total_search_request = 40
+        # para evitar throttling
+        # blocks = ceil(total_search_request / 20)
+
+        # print(blocks)
+        # print(ceil(total_search_request/blocks))
+        # print(total_search_request)
+        # for b in range(0, blocks):
+        #     for i in range(0, ceil(total_search_request / blocks)):
+        #         block_begin = b * (ceil(total_search_request / blocks) - 1) * item_per_search
+        #         current_filter = i * item_per_search
+        #         filter_from = (block_begin + current_filter)
+        #
+        #         search_filter = self.get_default_filter()
+        #         search_filter['from'] = current_filter
+        #         search_filter["size"] = item_per_search
+        #         search_filter["search_after"] = [block_begin]
+        #         search_filter["sort"] = [
+        #             {"datetime": "asc"}
+        #         ]
+        #         if custom_filter:
+        #             del search_filter['query']['match_all']
+        #             search_filter['query'].update(custom_filter)
+        #
+        #         print(search_filter)
+        #         self.queue.put(search_filter)
+        #
+        #     # test
+        #     # self.logger.info('Total of items: {}, total of search request: {}, items per search: {}'
+        #     #                  .format(self.total_items, total_search_request, item_per_search))
+        #     self.logger.info('Processing {} of {}'.format(b, blocks))
+        #
+        #     # thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
+        #     # thread_executor.set_max_works(self.threads_count)
+        #     # thread_executor.execute(future_fn=self._do_request, finish_callback=self._block_callback)
+        #     # test
+        #     # self._process_callback()
+        #     time.sleep(1)
+
+        # for i in range(0, total_search_request):
+        #
+        #     search_filter = self.get_default_filter()
+        #     search_filter['from'] = i * item_per_search
+        #     search_filter["size"] = item_per_search
+        #     if custom_filter:
+        #         del search_filter['query']['match_all']
+        #         search_filter['query'].update(custom_filter)
+        #
+        #     self.queue.put(search_filter)
+        #
+        # self.logger.info('Total of items: {}, total of search request: {}, items per search: {}'
+        #                  .format(self.total_items, total_search_request, item_per_search))
+        #
+        # thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
+        # thread_executor.set_max_works(self.threads_count)
+        # thread_executor.execute(future_fn=self._do_request, finish_callback=self._finish_callback)
+
+    def _block_callback(self, results):
+        self.block_result.append(results)
+        # print(results)
+
+
+    def get_default_filter(self):
+        search_filter = {
+            "query": {
+                "match_all": {},
             }
+        }
+        return search_filter
 
-            self.queue.put(search_filter)
+    def get_elastic_count(self, custom_filter=None):
+        search_filter = self.get_default_filter()
+        if custom_filter:
+            del search_filter['query']['match_all']
+            search_filter['query'].update(custom_filter)
 
-        thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
-        thread_executor.set_max_works(self.threads_count)
-        thread_executor.execute(future_fn=self._do_request, finish_callback=self._finish_callback)
+        self.logger.info('filter: {}'.format(search_filter))
 
-
-    def get_elastic_count(self):
-        result = self.es_client.count(index=self.index)
+        result = self.es_client.count(index=self.index, body=search_filter)
+        # result = self.es_client.count(index=self.index)
 
         # self.logger.info("Result: {}".format(result))
         self.logger.info("Counting {} items in index {}".format(result['count'], self.index))
@@ -76,12 +185,17 @@ class ImportService:
 
     def _do_request(self):
         self.threads_item_counter = self.threads_item_counter + 1
+        response = True
         search_fields = self.queue.get()
-        response = self.es_client.search(index=self.index, body=search_fields)
+        try:
+            response = self.es_client.search(index=self.index, body=search_fields)
 
-        items = json.dumps(response['hits']['hits'])
-        response = self._do_upload(items)
-
+            items = json.dumps(response['hits']['hits'])
+            response = self._do_upload(items)
+        except Exception as err:
+            self.logger.error(err)
+            self.logger.error('search filter: {}'.format(search_fields))
+        self.logger.info('Processing: {} from {} items....'.format(self.threads_item_counter, self.total_request))
         return response
 
     def _finish_callback(self, result):
@@ -104,7 +218,7 @@ class ImportService:
         file_name = 'process.{}.{}.{}.{}.json'.format(
             self.index, self.threads_item_counter, now.strftime('%Y%m%d%H%M%S'), now.timestamp())
 
-        temp_file = self._create_file(items, file_name)
+        temp_file = self._create_file(items, bucket, file_name)
 
         file_type = self.index
 
@@ -113,6 +227,7 @@ class ImportService:
         self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         try:
             self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
+            # self.logger.info('aq')
 
         except Exception as err:
             self.logger.error(err)
@@ -121,14 +236,19 @@ class ImportService:
             self.logger.info('Removing temp file {}'.format(temp_file))
             try:
                 os.remove(temp_file)
+                # self.logger.info('rmv')
             except Exception as err:
                 self.logger.error('Unable to remove file {}'.format(temp_file))
                 self.logger.error(err)
 
         return {"uploaded": result, "bucket_file_name": bucket_file_name, "bucket": bucket}
 
-    def _create_file(self, body, file_name):
-        temp_file = path.join('/tmp', file_name)
+    def _create_file(self, body, bucket, file_name):
+
+        if not path.isdir('/tmp/{}'.format(bucket)):
+            os.mkdir('/tmp/{}'.format(bucket))
+
+        temp_file = path.join('/tmp/{}'.format(bucket), file_name)
         self.logger.info('temp_file: {}'.format(file_name))
         with open(temp_file, 'w') as f:
             f.write(body)
