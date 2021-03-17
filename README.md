@@ -1,4 +1,4 @@
-#es-2-s3-data-dump
+# es-2-s3-data-dump
 Elasticsearch to s3 data dump 
 
 
