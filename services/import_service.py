@@ -58,9 +58,7 @@ class ImportService:
         max_loop_interactions = ceil(self.total_items / es_max_items)
 
         self.total_request = max_loop_interactions * 10
-        # print(max_loop_interactions)
 
-        max_loop_interactions = 1
         for b in range(0, max_loop_interactions):
             search_after = b * es_max_items
             for i in range(0, 10):
@@ -168,8 +166,8 @@ class ImportService:
 
         self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         try:
-            #self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
-            self.logger.info('aq')
+            self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
+            # self.logger.info('aq')
 
         except Exception as err:
             self.logger.error(err)
