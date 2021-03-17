@@ -41,8 +41,8 @@ class ImportService:
         # final result
         self.results = {
             'items': [],
-            'total_items': 0,
-            'total_index_items': self.total_items,
+            'total_items': self.total_items,
+            'total_request': 0,
             'total_items_per_file': self.threads_queue_size
         }
 
@@ -60,6 +60,7 @@ class ImportService:
         self.total_request = max_loop_interactions * 10
         # print(max_loop_interactions)
 
+        max_loop_interactions = 1
         for b in range(0, max_loop_interactions):
             search_after = b * es_max_items
             for i in range(0, 10):
@@ -83,76 +84,17 @@ class ImportService:
             time.sleep(5)
 
         result = []
-        for item in self.block_result:
-            result.append(item)
+        for items in self.block_result:
+            for item in items:
+                result.append(item)
 
         self.results = {
             'items': result,
-            'total_items': len(result),
-            'total_index_items': self.total_items,
+            'total_items': self.total_items,
+            'total_request': self.total_request,
             'total_items_per_file': self.threads_queue_size
         }
 
-        # print(self.total_items/max_loop_interactions)
-
-        # item_per_search = self.recalculate_item_per_search()
-        # total_search_request = ceil(self.total_items / item_per_search)
-        # total_search_request = 40
-        # para evitar throttling
-        # blocks = ceil(total_search_request / 20)
-
-        # print(blocks)
-        # print(ceil(total_search_request/blocks))
-        # print(total_search_request)
-        # for b in range(0, blocks):
-        #     for i in range(0, ceil(total_search_request / blocks)):
-        #         block_begin = b * (ceil(total_search_request / blocks) - 1) * item_per_search
-        #         current_filter = i * item_per_search
-        #         filter_from = (block_begin + current_filter)
-        #
-        #         search_filter = self.get_default_filter()
-        #         search_filter['from'] = current_filter
-        #         search_filter["size"] = item_per_search
-        #         search_filter["search_after"] = [block_begin]
-        #         search_filter["sort"] = [
-        #             {"datetime": "asc"}
-        #         ]
-        #         if custom_filter:
-        #             del search_filter['query']['match_all']
-        #             search_filter['query'].update(custom_filter)
-        #
-        #         print(search_filter)
-        #         self.queue.put(search_filter)
-        #
-        #     # test
-        #     # self.logger.info('Total of items: {}, total of search request: {}, items per search: {}'
-        #     #                  .format(self.total_items, total_search_request, item_per_search))
-        #     self.logger.info('Processing {} of {}'.format(b, blocks))
-        #
-        #     # thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
-        #     # thread_executor.set_max_works(self.threads_count)
-        #     # thread_executor.execute(future_fn=self._do_request, finish_callback=self._block_callback)
-        #     # test
-        #     # self._process_callback()
-        #     time.sleep(1)
-
-        # for i in range(0, total_search_request):
-        #
-        #     search_filter = self.get_default_filter()
-        #     search_filter['from'] = i * item_per_search
-        #     search_filter["size"] = item_per_search
-        #     if custom_filter:
-        #         del search_filter['query']['match_all']
-        #         search_filter['query'].update(custom_filter)
-        #
-        #     self.queue.put(search_filter)
-        #
-        # self.logger.info('Total of items: {}, total of search request: {}, items per search: {}'
-        #                  .format(self.total_items, total_search_request, item_per_search))
-        #
-        # thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
-        # thread_executor.set_max_works(self.threads_count)
-        # thread_executor.execute(future_fn=self._do_request, finish_callback=self._finish_callback)
 
     def _block_callback(self, results):
         self.block_result.append(results)
@@ -202,8 +144,8 @@ class ImportService:
         self.logger.info('result')
         self.results = {
             'items': result,
-            'total_items': len(result),
-            'total_index_items': self.total_items,
+            'total_items': self.total_items,
+            'total_request': self.total_request,
             'total_items_per_file': self.threads_queue_size
         }
 
@@ -226,8 +168,8 @@ class ImportService:
 
         self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         try:
-            self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
-            # self.logger.info('aq')
+            #self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
+            self.logger.info('aq')
 
         except Exception as err:
             self.logger.error(err)

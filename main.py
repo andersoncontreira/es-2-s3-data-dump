@@ -34,12 +34,13 @@ def handler():
     logger.info("---------------------------------------------------------")
 
     if len(result['items']) > 0:
-        logger.info('Total item processed: {}'.format(result['total_items']))
-        logger.info('Total files processed: {}'.format(result['total_index_items']))
+        logger.info('Total processed items: {}'.format(result['total_items']))
+        logger.info('Total processed requests: {}'.format(result['total_request']))
         logger.info('Total items per file: {}'.format(result['total_items_per_file']))
         logger.info("---------------------------------------------------------")
         logger.info('{} - {} - {}'.format('bucket', 'bucket_file_name', 'uploaded?'))
         logger.info("---------------------------------------------------------")
+
         for res in result['items']:
             logger.info('{} - {} - {}'.format(res['bucket'], res['bucket_file_name'], res['uploaded']))
     else:
