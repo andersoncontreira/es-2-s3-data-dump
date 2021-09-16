@@ -18,7 +18,7 @@ class ImportService:
         self.block_result = []
         self.logger = logger if logger is not None else get_logger()
         self.es_client = es_client if es_client is not None else get_elasticsearch_client(with_params=True)
-        self.s3_client = s3_client if s3_client is not None else get_s3_client(with_params=True)
+        self.s3_client = s3_client if s3_client is not None else get_s3_client(with_params=False)
 
         # elasticsearch index
         self.index = index
@@ -45,8 +45,13 @@ class ImportService:
             'total_request': 0,
             'total_items_per_file': self.threads_queue_size
         }
+        # preserve data ?
+        self.preserve_tmp_data = False
 
-    def import_data(self, custom_filter):
+        # execute upload ?
+        self.execute_upload_to_s3 = True
+
+    def import_data(self, custom_filter, custom_sort=None):
         self.total_items = self.get_elastic_count(custom_filter)
         if self.total_items == 0:
             return self._finish_callback([])
@@ -67,13 +72,13 @@ class ImportService:
                 search_filter['from'] = 0
                 search_filter["size"] = self.threads_queue_size
                 search_filter["search_after"] = [search_after + _from]
-                search_filter["sort"] = [
-                    {"datetime": "asc"}
-                ]
+                search_filter["sort"] = self.get_default_sort()
                 if custom_filter:
                     del search_filter['query']['match_all']
                     search_filter['query'].update(custom_filter)
 
+                if custom_sort:
+                    search_filter["sort"] = custom_sort
                 self.queue.put(search_filter)
             thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
             thread_executor.set_max_works(self.threads_count)
@@ -93,11 +98,14 @@ class ImportService:
             'total_items_per_file': self.threads_queue_size
         }
 
+    def get_default_sort(self):
+        return [
+            {"datetime": "asc"}
+        ]
 
     def _block_callback(self, results):
         self.block_result.append(results)
         # print(results)
-
 
     def get_default_filter(self):
         search_filter = {
@@ -158,37 +166,59 @@ class ImportService:
         file_name = 'process.{}.{}.{}.{}.json'.format(
             self.index, self.threads_item_counter, now.strftime('%Y%m%d%H%M%S'), now.timestamp())
 
-        temp_file = self._create_file(items, bucket, file_name)
-
         file_type = self.index
 
         bucket_file_name = path.join(file_type, self.execution_key, file_name)
 
-        self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
-        try:
-            self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
-            # self.logger.info('aq')
+        temp_file = self._create_file(items, bucket, file_name, bucket_file_name)
 
+        try:
+            if self.execute_upload_to_s3:
+                self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
+                self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
+            else:
+                self.logger.info('Ignoring upload to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         except Exception as err:
             self.logger.error(err)
             result = False
         finally:
-            self.logger.info('Removing temp file {}'.format(temp_file))
-            try:
-                os.remove(temp_file)
-                # self.logger.info('rmv')
-            except Exception as err:
-                self.logger.error('Unable to remove file {}'.format(temp_file))
-                self.logger.error(err)
+            if self.preserve_tmp_data is False:
+                self.logger.info('Removing temp file {}'.format(temp_file))
+                try:
+                    os.remove(temp_file)
+                    # todo aplicar solução final para remover a pasta do bucket no tmp e excluir tudo
+                    # self.logger.info('rmv')
+                except Exception as err:
+                    self.logger.error('Unable to remove file {}'.format(temp_file))
+                    self.logger.error(err)
 
         return {"uploaded": result, "bucket_file_name": bucket_file_name, "bucket": bucket}
 
-    def _create_file(self, body, bucket, file_name):
+    def _create_file(self, body, bucket, file_name, bucket_file_name):
+        tmp_root = '/tmp'
+        tmp_bucket_folder = '{}/{}'.format(tmp_root, bucket)
+        bucket_folder = bucket_file_name.replace('/' + file_name, '')
+        destination_folder = '/tmp/{}/{}'.format(bucket, bucket_folder)
 
-        if not path.isdir('/tmp/{}'.format(bucket)):
-            os.mkdir('/tmp/{}'.format(bucket))
+        # create the tmp root folder
+        if not path.isdir(tmp_bucket_folder):
+            os.mkdir(tmp_bucket_folder)
 
-        temp_file = path.join('/tmp/{}'.format(bucket), file_name)
+        if not path.isdir(destination_folder):
+            current_dir = tmp_bucket_folder
+
+            destination_folder_parts = destination_folder.replace(tmp_bucket_folder, '').split('/')
+            for folder in destination_folder_parts:
+                if folder is '':
+                    continue
+                current_dir = '{}/{}'.format(current_dir, folder)
+                print(current_dir)
+                if not path.isdir(current_dir):
+                    os.mkdir(current_dir)
+
+        # temp_file = path.join('/tmp/{}'.format(bucket), file_name)
+        # temp_file = path.join('/tmp/{}/{}'.format(bucket, bucket_folder), file_name)
+        temp_file = path.join(destination_folder, file_name)
         self.logger.info('temp_file: {}'.format(file_name))
         with open(temp_file, 'w') as f:
             f.write(body)

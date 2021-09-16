@@ -14,6 +14,8 @@ def handler():
     logger = get_logger()
     index = os.environ['ELASTIC_INDEX']
     service = ImportService(index=index, logger=logger)
+    service.preserve_tmp_data = True
+    service.execute_upload_to_s3 = False
 
     logger.info("---------------------------------------------------------")
     logger.info("Beginning at {}".format(datetime.now(tz=pytz.timezone("America/Sao_Paulo"))))
@@ -26,7 +28,38 @@ def handler():
             ]
         }
     }
-    service.import_data(custom_filter)
+
+    event_name = "PURCHASE_ORDER_TEMPORARY_BREAK"
+    event_name = "CD_TEMPORARY_BREAK"
+    custom_filter = {
+            "bool": {
+                "must": [{
+                    "match": {
+                        "name": {
+                            "query": event_name
+                        }
+                    }
+                },
+                    {
+                        "range": {
+                            "date": {
+                                "gte": "2021-09-14T00:00:00",
+                                "lte": "2021-09-15T00:00:00"
+                                # "lte": "now"
+                            }
+                        }
+                    }]
+            }
+        }
+
+    custom_sort = [
+            {"date": "asc"}
+        ]
+    group_folder = "2021-09-01-to-2021-09-13"
+    group_folder = "2021-09-14-to-2021-09-15"
+    # group_folder = "2021-09-15-to-now"
+    service.execution_key = "{}/{}/{}".format(group_folder, event_name, service.execution_key)
+    service.import_data(custom_filter, custom_sort)
     result = service.get_results()
 
     logger.info("---------------------------------------------------------")
