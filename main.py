@@ -15,6 +15,7 @@ def handler():
     index = os.environ['ELASTIC_INDEX']
     service = ImportService(index=index, logger=logger)
     service.preserve_tmp_data = True
+    service.execute_upload_to_s3 = False
 
     logger.info("---------------------------------------------------------")
     logger.info("Beginning at {}".format(datetime.now(tz=pytz.timezone("America/Sao_Paulo"))))

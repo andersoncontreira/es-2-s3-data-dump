@@ -48,6 +48,9 @@ class ImportService:
         # preserve data ?
         self.preserve_tmp_data = False
 
+        # execute upload ?
+        self.execute_upload_to_s3 = True
+
     def import_data(self, custom_filter, custom_sort=None):
         self.total_items = self.get_elastic_count(custom_filter)
         if self.total_items == 0:
@@ -169,11 +172,12 @@ class ImportService:
 
         temp_file = self._create_file(items, bucket, file_name, bucket_file_name)
 
-        self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         try:
-            self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
-            # self.logger.info('aq')
-
+            if self.execute_upload_to_s3:
+                self.logger.info('Uploading to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
+                self.s3_client.upload_file(temp_file, bucket, bucket_file_name)
+            else:
+                self.logger.info('Ignoring upload to S3 %s %s %s' % (temp_file, bucket, bucket_file_name))
         except Exception as err:
             self.logger.error(err)
             result = False
