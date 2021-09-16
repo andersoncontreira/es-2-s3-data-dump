@@ -26,7 +26,33 @@ def handler():
             ]
         }
     }
-    service.import_data(custom_filter)
+
+    event_name = "PURCHASE_ORDER_TEMPORARY_BREAK"
+    custom_filter = {
+            "bool": {
+                "must": [{
+                    "match": {
+                        "name": {
+                            "query": event_name
+                        }
+                    }
+                },
+                    {
+                        "range": {
+                            "date": {
+                                "gte": "2021-09-01T00:00:00",
+                                "lte": "2021-09-14T00:00:00"
+                            }
+                        }
+                    }]
+            }
+        }
+
+    custom_sort = [
+            {"date": "asc"}
+        ]
+    service.execution_key = "{}/{}".format(event_name, service.execution_key)
+    service.import_data(custom_filter, custom_sort)
     result = service.get_results()
 
     logger.info("---------------------------------------------------------")

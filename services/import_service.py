@@ -18,7 +18,7 @@ class ImportService:
         self.block_result = []
         self.logger = logger if logger is not None else get_logger()
         self.es_client = es_client if es_client is not None else get_elasticsearch_client(with_params=True)
-        self.s3_client = s3_client if s3_client is not None else get_s3_client(with_params=True)
+        self.s3_client = s3_client if s3_client is not None else get_s3_client(with_params=False)
 
         # elasticsearch index
         self.index = index
@@ -46,7 +46,7 @@ class ImportService:
             'total_items_per_file': self.threads_queue_size
         }
 
-    def import_data(self, custom_filter):
+    def import_data(self, custom_filter, custom_sort=None):
         self.total_items = self.get_elastic_count(custom_filter)
         if self.total_items == 0:
             return self._finish_callback([])
@@ -67,13 +67,13 @@ class ImportService:
                 search_filter['from'] = 0
                 search_filter["size"] = self.threads_queue_size
                 search_filter["search_after"] = [search_after + _from]
-                search_filter["sort"] = [
-                    {"datetime": "asc"}
-                ]
+                search_filter["sort"] = self.get_default_sort()
                 if custom_filter:
                     del search_filter['query']['match_all']
                     search_filter['query'].update(custom_filter)
 
+                if custom_sort:
+                    search_filter["sort"] = custom_sort
                 self.queue.put(search_filter)
             thread_executor = ThreadExecutor(queue=self.queue, logger=self.logger)
             thread_executor.set_max_works(self.threads_count)
@@ -93,6 +93,10 @@ class ImportService:
             'total_items_per_file': self.threads_queue_size
         }
 
+    def get_default_sort(self):
+        return [
+            {"datetime": "asc"}
+        ]
 
     def _block_callback(self, results):
         self.block_result.append(results)

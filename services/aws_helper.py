@@ -64,7 +64,7 @@ def get_elasticsearch_client(with_params=False):
         return Elasticsearch([os.environ["ELASTIC_URL"]],
                              use_ssl=is_https(),
                              verify_certs=True,
-                             scheme=get_protocol(),
+                             scheme=get_protocol().replace('://', ''),
                              port=os.environ["ELASTIC_PORT"],
                              connection_class=RequestsHttpConnection,
                              http_auth=awsauth,
